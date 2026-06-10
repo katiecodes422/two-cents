@@ -491,7 +491,8 @@ export default function TwoCents() {
 
   /* ---- AI categorize pending + low-confidence ---- */
   async function runSmartCategorize() {
-    const need = [...new Set(allTxns.filter((t) => t.source === "pending" || (t.source === "rules" && t.confidence < 80) || !t.sub).map((t) => normMerchant(t.desc)))].slice(0, 60);
+    const subOK = (t) => (SUBCATS[t.category] || []).includes(normSub(t.category, t.sub));
+    const need = [...new Set(allTxns.filter((t) => t.source === "pending" || (t.source === "rules" && t.confidence < 80) || (t.source !== "you" && !subOK(t))).map((t) => normMerchant(t.desc)))].slice(0, 60);
     if (!apiKey) return needKey();
     if (!need.length) { setBusy("Everything is already categorized. Correct any row to teach the app."); setTimeout(() => setBusy(""), 4000); return; }
     setBusy(`Parsing & categorizing ${need.length} merchants with AI (multi-signal review)… this is free — give it a minute and check back.`);
