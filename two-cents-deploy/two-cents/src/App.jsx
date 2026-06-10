@@ -185,7 +185,11 @@ async function aiExtractTransactions(apiKey, b64, mediaType, knownProfile, onPro
       ? `Extract EVERY transaction from this bank or credit-card statement.${profile ? `\nYou have parsed this bank's statements before — known layout: ${profile}` : ""}
 Output ONLY the following, no prose, no markdown:
 ${profile ? "" : "First line: PROFILE|<max 25 words: bank name, layout, date format, whether charges appear positive or negative, sections to skip>\n"}Then ONE line per transaction: YYYY-MM-DD|merchant or description|amount
-amount must be NEGATIVE for money out (purchases, charges, fees, payments sent) and POSITIVE for money in (deposits, refunds, payments received). Convert credit-card charges to negative even if the statement prints them as positive. Skip running balances, daily totals, summary boxes, and interest-rate tables.
+amount must be NEGATIVE for money out (purchases, charges, fees, payments sent) and POSITIVE for money in (deposits, refunds, payments received). Convert credit-card charges to negative even if the statement prints them as positive.
+CRITICAL rules for tricky layouts:
+- Many statements show a running BALANCE column on the far right next to the Amount column. NEVER use the balance as the amount. The amount is the smaller signed transaction value, not the account total.
+- Some statements (especially credit unions) split one transaction across TWO lines: the first line has a generic label like "Withdrawal Debit Card" plus the amount, and the NEXT line holds the actual merchant name (e.g., "SUBWAY 37627 TAMPA FL"). Merge them into ONE output line, using the merchant name as the description and the post date as the date. Never output "Withdrawal Debit Card" alone as a description when a merchant line follows it.
+- Skip running balances, "Previous Balance"/"Ending Balance" rows, daily totals, dividend/APY summaries, and interest-rate tables.
 After the FINAL transaction print <<END>> on its own line. If you cannot fit them all, stop after a complete line and print <<MORE>>.`
       : `Continue extracting transactions from this same statement, strictly AFTER this one: "${lastLine}".
 Same format — one line per transaction: YYYY-MM-DD|description|amount (negative = money out). No prose. Print <<END>> after the final transaction, or <<MORE>> if there are still more.`;
@@ -933,6 +937,15 @@ export default function TwoCents() {
                     </div>
                     <Btn small tone="ghost" onClick={() => { setBankPick(name); fileRef.current.click(); }}><Upload size={12} /> New statement</Btn>
                     <Btn small tone="ghost" onClick={() => setBanks((bb) => { const c = { ...bb }; delete c[name]; return c; })}><Trash2 size={12} /> Forget format</Btn>
+                    <Btn small tone="cut" onClick={() => {
+                      const n = allTxns.filter((t) => t.bank === name).length;
+                      if (!n) { setBusy(`No transactions from ${name} to delete.`); setTimeout(() => setBusy(""), 4000); return; }
+                      if (!confirm(`Delete all ${n} transactions imported from ${name}? The bank's learned format is kept. You can re-upload the statement after.`)) return;
+                      setTxnsA((l) => l.filter((t) => t.bank !== name));
+                      setTxnsB((l) => l.filter((t) => t.bank !== name));
+                      setBusy(`Deleted ${n} transactions from ${name}. Re-upload the statement to import them fresh.`);
+                      setTimeout(() => setBusy(""), 7000);
+                    }}><Trash2 size={12} /> Delete transactions</Btn>
                   </div>
                 ))}
               </Card>
