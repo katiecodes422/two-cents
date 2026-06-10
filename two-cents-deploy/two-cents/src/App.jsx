@@ -88,7 +88,7 @@ function ruleCategory(desc) {
 }
 
 /* ---------- AI: multi-signal categorization (your free Gemini key) ---------- */
-async function aiCategorize(apiKey, merchants) {
+async function aiCategorize(apiKey, merchants, onWait) {
   const prompt = `You are a financial transaction categorizer that does NOT blindly trust default merchant codes.
 For each merchant below, use everything you know about the actual business (what it really is, its reputation,
 whether a "restaurant" code is really a bar, whether a store is a high-end or budget grocer, etc.).
@@ -97,7 +97,7 @@ Respond ONLY with a JSON array, no prose, no markdown fences. Each item:
 {"m": "<merchant exactly as given>", "category": "<one category>", "sub": "<short subcategory like 'Bar', 'High-end grocer', 'Streaming'>", "confidence": 0-100, "note": "<max 12 words on what this business actually is>"}
 Merchants:
 ${merchants.map((m) => "- " + m).join("\n")}`;
-  const text = await gemini(apiKey, [{ text: prompt }]);
+  const text = await gemini(apiKey, [{ text: prompt }], { onWait });
   const clean = text.replace(/```json|```/g, "").trim();
   const m = clean.match(/\[[\s\S]*\]/);
   return JSON.parse(m ? m[0] : clean);
@@ -121,7 +121,7 @@ Then respond ONLY with JSON (no fences): {"category": "<one of: ${CAT_LIST.join(
    The AI reads the raw statement, extracts every transaction, and writes a
    short "layout profile" for that bank. The profile is saved and replayed on
    future uploads from the same bank, so parsing gets faster and more exact. */
-async function aiExtractTransactions(apiKey, b64, mediaType, knownProfile, onProgress) {
+async function aiExtractTransactions(apiKey, b64, mediaType, knownProfile, onProgress, onWait) {
   const docPart = { inline_data: { mime_type: mediaType, data: b64 } };
   let all = [];
   let profile = knownProfile || null;
@@ -135,7 +135,13 @@ amount must be NEGATIVE for money out (purchases, charges, fees, payments sent) 
 After the FINAL transaction print <<END>> on its own line. If you cannot fit them all, stop after a complete line and print <<MORE>>.`
       : `Continue extracting transactions from this same statement, strictly AFTER this one: "${lastLine}".
 Same format — one line per transaction: YYYY-MM-DD|description|amount (negative = money out). No prose. Print <<END>> after the final transaction, or <<MORE>> if there are still more.`;
-    const text = await gemini(apiKey, [docPart, { text: instr }]);
+    let text;
+    try {
+      text = await gemini(apiKey, [docPart, { text: instr }], { onWait });
+    } catch (e) {
+      if (all.length > 0) { onProgress?.(all.length); break; } // keep what we already extracted
+      throw e;
+    }
     let added = 0;
     text.split("\n").forEach((lnRaw) => {
       const ln = lnRaw.trim();
@@ -389,6 +395,9 @@ export default function TwoCents() {
   /* ---- PDF / image path: AI reads the statement itself ---- */
   async function aiParseDocument(file, bank, owner) {
     if (!apiKey) return needKey();
+    let wakeLock = null;
+    try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
+    const releaseWake = () => { try { wakeLock?.release(); } catch {} };
     const known = banks[bank]?.notes;
     setBusy(known
       ? `Parsing ${bank} statement — using the layout learned from your last upload…`
@@ -397,14 +406,19 @@ export default function TwoCents() {
       const b64 = await fileToBase64(file);
       const mediaType = file.type === "application/pdf" ? "application/pdf" : (file.type || "image/png");
       const { txns, profile } = await aiExtractTransactions(apiKey, b64, mediaType, known,
-        (n) => setBusy(`Parsing ${bank} statement… ${n} transactions extracted so far (free — check back if it's a long one).`));
+        (n) => setBusy(`Parsing ${bank} statement… ${n} transactions extracted so far. Keep this tab open and the screen awake.`),
+        (msg) => setBusy(msg));
       if (!txns.length) { setBusy("AI couldn't find transactions in that file. If it's a scanned statement, try a clearer photo or the CSV export."); setTimeout(() => setBusy(""), 8000); return; }
       const n = ingest(txns, bank, owner);
+      releaseWake();
       rememberBank(bank, { kind: file.type === "application/pdf" ? "pdf" : "image", notes: profile });
       setBusy(`Imported ${n} transactions from ${bank}. ${known ? "Used the remembered layout." : `Layout learned and saved — the next ${bank} statement parses automatically.`} Run “Smart categorize” next.`);
       setTab("transactions");
     } catch (e) {
-      setBusy(`Parsing hit a snag (${e.message || "rate limit"}). The free AI tier sometimes needs a minute — try the same file again shortly.`);
+      releaseWake();
+      setBusy(`Parsing failed after several automatic retries (${e.message || "free-tier limit"}). Nothing was saved — upload the same file again in a few minutes.`);
+      setTimeout(() => setBusy(""), 60000);
+      return;
     }
     setTimeout(() => setBusy(""), 9000);
   }
@@ -429,7 +443,7 @@ export default function TwoCents() {
     try {
       for (let i = 0; i < need.length; i += 18) {
         const batch = need.slice(i, i + 18);
-        const results = await aiCategorize(apiKey, batch);
+        const results = await aiCategorize(apiKey, batch, (msg) => setBusy(msg));
         const map = {};
         results.forEach((r) => { if (CAT_LIST.includes(r.category)) map[r.m.toLowerCase()] = r; });
         const apply = (list) => list.map((t) => {
