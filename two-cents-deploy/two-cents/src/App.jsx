@@ -34,25 +34,77 @@ const CATEGORIES = {
 };
 const CAT_LIST = Object.keys(CATEGORIES);
 
+// Standardized subcategories — the AI must pick from these so they roll up cleanly.
+const SUBCATS = {
+  "Housing & Mortgage": ["Mortgage", "Rent", "HOA & property", "Home maintenance"],
+  Insurance: ["Home insurance", "Auto insurance", "Health & life", "Other policies"],
+  Utilities: ["Power & gas", "Water & trash", "Internet & cable", "Phone"],
+  Groceries: ["Supermarket", "High-end grocer", "Budget grocer", "Warehouse club", "Convenience store"],
+  "Dining & Bars": ["Restaurant", "Fast food", "Bar & nightlife", "Coffee & cafe", "Delivery & takeout"],
+  Transportation: ["Gas & fuel", "Rideshare", "Tolls & parking", "Auto service", "Public transit"],
+  "Subscriptions & Streaming": ["Streaming", "Software & apps", "Memberships", "News & media"],
+  Shopping: ["Online retail", "Home improvement", "Clothing", "Electronics", "General retail"],
+  Health: ["Pharmacy", "Doctor & dental", "Fitness", "Vision & other"],
+  Travel: ["Flights", "Hotels & stays", "Rental cars", "Vacation activities"],
+  Entertainment: ["Movies & events", "Games", "Hobbies"],
+  "Kids & Pets": ["Childcare & school", "Kids activities", "Pet food & supplies", "Vet"],
+  Income: ["Salary", "Refunds", "Other income"],
+  Transfers: ["P2P apps", "Account transfer"],
+  "Fees & Interest": ["Bank fees", "Interest", "Late fees"],
+  Other: ["Misc"],
+};
+// Snap a free-text sub onto the standard list for its category (keeps rollups clean).
+function normSub(cat, sub) {
+  const list = SUBCATS[cat] || [];
+  if (!sub) return "";
+  const s = sub.trim().toLowerCase();
+  for (const x of list) if (x.toLowerCase() === s) return x;
+  for (const x of list) if (x.toLowerCase().includes(s) || s.includes(x.toLowerCase())) return x;
+  return sub.trim();
+}
+
 // Built-in keyword rules: first-pass signal before AI review.
 const KEYWORD_RULES = [
-  [/mortgage|mtg|loan pmt|wells fargo home|rocket mort|mr cooper|loandepot/i, "Housing & Mortgage"],
-  [/rent\b|property mgmt|hoa/i, "Housing & Mortgage"],
-  [/geico|state farm|progressive|allstate|usaa ins|citizens ins|liberty mut|insur/i, "Insurance"],
-  [/electric|duke energy|teco|fpl|water util|gas co|comcast|xfinity|spectrum|frontier|t-mobile|verizon|at&t|att\b/i, "Utilities"],
-  [/publix|kroger|aldi|walmart|wal-mart|trader joe|whole foods|costco|sams club|winn dixie|fresh market|sprouts|grocery/i, "Groceries"],
-  [/mcdonald|chipotle|starbucks|dunkin|restaurant|grill|cafe|pizza|sushi|taco|wing|brewery|tavern|pub\b|bar\b|cantina|bistro|diner/i, "Dining & Bars"],
-  [/shell|chevron|exxon|wawa|racetrac|circle k|7-eleven|uber(?!.*eats)|lyft|sunpass|toll|parking|autozone|jiffy lube/i, "Transportation"],
-  [/uber eats|doordash|grubhub|instacart/i, "Dining & Bars"],
-  [/netflix|spotify|hulu|disney\+|max\b|paramount|apple\.com\/bill|youtube prem|audible|patreon|onlyf|prime video|icloud|dropbox|adobe|canva|chatgpt|claude\.ai/i, "Subscriptions & Streaming"],
-  [/amazon|amzn|target|best buy|home depot|lowes|ikea|etsy|ebay|marshalls|tj maxx|ross\b/i, "Shopping"],
-  [/cvs|walgreens|pharmacy|dental|dr\.|clinic|hospital|lab corp|quest diag|gym|planet fitness|la fitness/i, "Health"],
-  [/airline|delta air|southwest|united air|american air|spirit air|hotel|marriott|hilton|airbnb|vrbo|expedia/i, "Travel"],
-  [/amc\b|cinema|theatre|ticketmaster|steam games|playstation|xbox|nintendo/i, "Entertainment"],
-  [/petco|petsmart|chewy|daycare|tuition/i, "Kids & Pets"],
-  [/payroll|direct dep|deposit|salary|venmo cashout|irs treas|tax ref/i, "Income"],
-  [/zelle|venmo|transfer|xfer|paypal/i, "Transfers"],
-  [/overdraft|interest charge|late fee|annual fee|service fee|atm fee/i, "Fees & Interest"],
+  [/mortgage|mtg|loan pmt|wells fargo home|rocket mort|mr cooper|loandepot/i, "Housing & Mortgage", "Mortgage"],
+  [/rent\b|property mgmt|hoa/i, "Housing & Mortgage", "Rent"],
+  [/geico|state farm|progressive|allstate|usaa ins|citizens ins|liberty mut|insur/i, "Insurance", ""],
+  [/comcast|xfinity|spectrum|frontier/i, "Utilities", "Internet & cable"],
+  [/t-mobile|verizon|at&t|att\b/i, "Utilities", "Phone"],
+  [/electric|duke energy|teco|fpl|water util|gas co/i, "Utilities", "Power & gas"],
+  [/whole foods|fresh market|sprouts|erewhon/i, "Groceries", "High-end grocer"],
+  [/aldi|walmart|wal-mart|winn dixie/i, "Groceries", "Budget grocer"],
+  [/costco|sams club/i, "Groceries", "Warehouse club"],
+  [/publix|kroger|trader joe|grocery/i, "Groceries", "Supermarket"],
+  [/starbucks|dunkin|coffee|cafe\b/i, "Dining & Bars", "Coffee & cafe"],
+  [/mcdonald|burger king|wendy|taco bell|chick-fil-a|chipotle|subway\b|kfc|popeyes|five guys|panda express/i, "Dining & Bars", "Fast food"],
+  [/brewery|tavern|pub\b|bar\b|cantina|saloon|taproom|lounge/i, "Dining & Bars", "Bar & nightlife"],
+  [/uber eats|doordash|grubhub|instacart|postmates/i, "Dining & Bars", "Delivery & takeout"],
+  [/restaurant|grill|pizza|sushi|taco|wing|bistro|diner|steakhouse|kitchen/i, "Dining & Bars", "Restaurant"],
+  [/shell|chevron|exxon|wawa|racetrac|circle k|7-eleven/i, "Transportation", "Gas & fuel"],
+  [/uber(?!.*eats)|lyft/i, "Transportation", "Rideshare"],
+  [/sunpass|toll|parking/i, "Transportation", "Tolls & parking"],
+  [/autozone|jiffy lube|tire|oil change/i, "Transportation", "Auto service"],
+  [/netflix|spotify|hulu|disney\+|max\b|paramount|youtube prem|audible|prime video/i, "Subscriptions & Streaming", "Streaming"],
+  [/apple\.com\/bill|icloud|dropbox|adobe|canva|chatgpt|claude\.ai/i, "Subscriptions & Streaming", "Software & apps"],
+  [/patreon|onlyf/i, "Subscriptions & Streaming", "Memberships"],
+  [/home depot|lowes/i, "Shopping", "Home improvement"],
+  [/amazon|amzn|etsy|ebay/i, "Shopping", "Online retail"],
+  [/best buy/i, "Shopping", "Electronics"],
+  [/marshalls|tj maxx|ross\b/i, "Shopping", "Clothing"],
+  [/target|ikea/i, "Shopping", "General retail"],
+  [/cvs|walgreens|pharmacy/i, "Health", "Pharmacy"],
+  [/dental|dr\.|clinic|hospital|lab corp|quest diag/i, "Health", "Doctor & dental"],
+  [/gym|planet fitness|la fitness/i, "Health", "Fitness"],
+  [/airline|delta air|southwest|united air|american air|spirit air/i, "Travel", "Flights"],
+  [/hotel|marriott|hilton|airbnb|vrbo|expedia/i, "Travel", "Hotels & stays"],
+  [/amc\b|cinema|theatre|ticketmaster/i, "Entertainment", "Movies & events"],
+  [/steam games|playstation|xbox|nintendo/i, "Entertainment", "Games"],
+  [/petco|petsmart|chewy/i, "Kids & Pets", "Pet food & supplies"],
+  [/daycare|tuition/i, "Kids & Pets", "Childcare & school"],
+  [/payroll|direct dep|deposit|salary|irs treas|tax ref/i, "Income", "Salary"],
+  [/zelle|venmo|transfer|xfer|paypal/i, "Transfers", "P2P apps"],
+  [/overdraft|interest charge/i, "Fees & Interest", "Interest"],
+  [/late fee|annual fee|service fee|atm fee/i, "Fees & Interest", "Bank fees"],
 ];
 
 const HIGH_END_GROCERS = /whole foods|fresh market|sprouts|erewhon/i;
@@ -83,7 +135,7 @@ function parseDateAny(s) {
 }
 
 function ruleCategory(desc) {
-  for (const [re, cat] of KEYWORD_RULES) if (re.test(desc)) return cat;
+  for (const [re, cat, sub] of KEYWORD_RULES) if (re.test(desc)) return { cat, sub: sub || "" };
   return null;
 }
 
@@ -93,8 +145,10 @@ async function aiCategorize(apiKey, merchants, onWait) {
 For each merchant below, use everything you know about the actual business (what it really is, its reputation,
 whether a "restaurant" code is really a bar, whether a store is a high-end or budget grocer, etc.).
 Categories: ${CAT_LIST.join(", ")}.
+For "sub" you MUST choose one of the allowed subcategories of the chosen category:
+${Object.entries(SUBCATS).map(([c, s]) => c + ": " + s.join(" / ")).join("\n")}
 Respond ONLY with a JSON array, no prose, no markdown fences. Each item:
-{"m": "<merchant exactly as given>", "category": "<one category>", "sub": "<short subcategory like 'Bar', 'High-end grocer', 'Streaming'>", "confidence": 0-100, "note": "<max 12 words on what this business actually is>"}
+{"m": "<merchant exactly as given>", "category": "<one category>", "sub": "<one allowed subcategory>", "confidence": 0-100, "note": "<max 12 words on what this business actually is>"}
 Merchants:
 ${merchants.map((m) => "- " + m).join("\n")}`;
   const text = await gemini(apiKey, [{ text: prompt }], { onWait });
@@ -266,6 +320,7 @@ export default function TwoCents() {
   const [busy, setBusy] = useState("");
   const [share, setShare] = useState(null); // {title, text}
   const [cuts, setCuts] = useState({}); // category -> percent
+  const [drill, setDrill] = useState(null); // category being drilled into on the dashboard
   const fileRef = useRef();
   const [pasteText, setPasteText] = useState("");
   const [importBank, setImportBank] = useState("");
@@ -311,12 +366,12 @@ export default function TwoCents() {
     const out = records.map(({ date, desc, amount }) => {
       const key = normMerchant(desc).toLowerCase();
       const userRule = rules[key];
-      const ruleCat = ruleCategory(desc);
+      const rc = ruleCategory(desc);
       return {
         id: uid(), date, desc, amount, bank: bank || "Bank",
-        category: userRule?.category || ruleCat || (amount > 0 ? "Income" : "Other"),
-        sub: userRule?.sub || "", source: userRule ? "you" : ruleCat ? "rules" : "pending",
-        confidence: userRule ? 100 : ruleCat ? 70 : 0,
+        category: userRule?.category || rc?.cat || (amount > 0 ? "Income" : "Other"),
+        sub: userRule?.sub || rc?.sub || "", source: userRule ? "you" : rc ? "rules" : "pending",
+        confidence: userRule ? 100 : rc ? 70 : 0,
       };
     });
     if (!out.length) { alert("No transactions found in that statement."); return 0; }
@@ -436,7 +491,7 @@ export default function TwoCents() {
 
   /* ---- AI categorize pending + low-confidence ---- */
   async function runSmartCategorize() {
-    const need = [...new Set(allTxns.filter((t) => t.source === "pending" || (t.source === "rules" && t.confidence < 80)).map((t) => normMerchant(t.desc)))].slice(0, 60);
+    const need = [...new Set(allTxns.filter((t) => t.source === "pending" || (t.source === "rules" && t.confidence < 80) || !t.sub).map((t) => normMerchant(t.desc)))].slice(0, 60);
     if (!apiKey) return needKey();
     if (!need.length) { setBusy("Everything is already categorized. Correct any row to teach the app."); setTimeout(() => setBusy(""), 4000); return; }
     setBusy(`Parsing & categorizing ${need.length} merchants with AI (multi-signal review)… this is free — give it a minute and check back.`);
@@ -449,7 +504,7 @@ export default function TwoCents() {
         const apply = (list) => list.map((t) => {
           const r = map[normMerchant(t.desc).toLowerCase()];
           if (!r || rules[normMerchant(t.desc).toLowerCase()]) return t;
-          return { ...t, category: r.category, sub: r.sub, source: "ai", confidence: r.confidence, note: r.note };
+          return { ...t, category: r.category, sub: normSub(r.category, r.sub), source: "ai", confidence: r.confidence, note: r.note };
         });
         setTxnsA(apply); setTxnsB(apply);
       }
@@ -464,7 +519,7 @@ export default function TwoCents() {
     try {
       const r = await aiVerifyMerchant(apiKey, normMerchant(t.desc));
       if (r && CAT_LIST.includes(r.category)) {
-        correct(t, r.category, r.sub, r.evidence);
+        correct(t, r.category, normSub(r.category, r.sub), r.evidence);
         setBusy(`Verified: ${r.category} (${r.sub}) — ${r.evidence}`);
       } else setBusy("Couldn't verify confidently — left it for your call.");
     } catch { setBusy("Web verification rate-limited right now — try again in a minute (still free)."); }
@@ -490,6 +545,21 @@ export default function TwoCents() {
     month: m.slice(2), spend: spend.filter((t) => monthKey(t.date) === m).reduce((s, t) => s + Math.abs(t.amount), 0),
     income: allTxns.filter((t) => t.amount > 0 && t.category === "Income" && monthKey(t.date) === m).reduce((s, t) => s + t.amount, 0),
   })), [months, spend, allTxns]);
+  const drillTxns = useMemo(() => (drill ? spend.filter((t) => t.category === drill) : []), [drill, spend]);
+  const drillBySub = useMemo(() => {
+    const m = {};
+    drillTxns.forEach((t) => { const k = normSub(drill, t.sub) || "Needs subcategory"; m[k] = (m[k] || 0) + Math.abs(t.amount); });
+    return Object.entries(m).map(([name, value]) => ({ name, value, monthly: value / nMonths })).sort((a, b) => b.value - a.value);
+  }, [drillTxns, drill, nMonths]);
+  const drillMerchants = useMemo(() => {
+    const m = {};
+    drillTxns.forEach((t) => {
+      const k = normMerchant(t.desc);
+      m[k] = m[k] || { total: 0, n: 0, sub: normSub(drill, t.sub) || "Needs subcategory" };
+      m[k].total += Math.abs(t.amount); m[k].n++;
+    });
+    return Object.entries(m).sort((a, b) => b[1].total - a[1].total).slice(0, 12);
+  }, [drillTxns, drill]);
   const subs = useMemo(() => detectSubscriptions(allTxns), [allTxns]);
   const monthlySpend = spend.reduce((s, t) => s + Math.abs(t.amount), 0) / nMonths;
   const monthlyIncome = allTxns.filter((t) => t.amount > 0 && t.category === "Income").reduce((s, t) => s + t.amount, 0) / nMonths;
@@ -627,10 +697,11 @@ export default function TwoCents() {
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
               <Card>
-                <H>Where the money goes ({nMonths} mo)</H>
+                <H>Where the money goes ({nMonths} mo) — click a slice to drill in</H>
                 <ResponsiveContainer width="100%" height={260}>
                   <PieChart>
-                    <Pie data={byCat} dataKey="value" nameKey="name" innerRadius={58} outerRadius={95} paddingAngle={1}>
+                    <Pie data={byCat} dataKey="value" nameKey="name" innerRadius={58} outerRadius={95} paddingAngle={1}
+                      style={{ cursor: "pointer" }} onClick={(d) => d?.name && setDrill(d.name)}>
                       {byCat.map((c) => <Cell key={c.name} fill={CATEGORIES[c.name] || C.sub} />)}
                     </Pie>
                     <RTooltip formatter={(v) => maskTotals ? "hidden" : fmt0(v)} />
@@ -638,10 +709,10 @@ export default function TwoCents() {
                 </ResponsiveContainer>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {byCat.slice(0, 8).map((c) => (
-                    <span key={c.name} style={{ fontSize: 11.5, color: C.sub, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <button key={c.name} onClick={() => setDrill(c.name)} style={{ fontSize: 11.5, color: C.sub, display: "inline-flex", alignItems: "center", gap: 4, background: drill === c.name ? C.greenSoft : "transparent", border: "none", borderRadius: 6, padding: "3px 6px", cursor: "pointer" }}>
                       <span style={{ width: 8, height: 8, borderRadius: 2, background: CATEGORIES[c.name] }} />
-                      {c.name} {!maskTotals && <b style={{ color: C.ink }}>{fmt0(c.monthly)}/mo</b>}
-                    </span>
+                      {c.name} {!maskTotals && <b style={{ color: C.ink }}>{fmt0(c.monthly)}/mo</b>} <ChevronRight size={11} />
+                    </button>
                   ))}
                 </div>
               </Card>
@@ -661,6 +732,55 @@ export default function TwoCents() {
               </Card>
             </div>
 
+            {drill && (
+              <Card style={{ borderColor: CATEGORIES[drill] }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                  <Btn small tone="ghost" onClick={() => setDrill(null)}><X size={12} /> Back</Btn>
+                  <Pill cat={drill} />
+                  <b style={{ fontSize: 15 }}>Inside {drill}</b>
+                  {!maskTotals && <span style={{ marginLeft: "auto", fontFamily: "ui-monospace, monospace", fontWeight: 700, color: CATEGORIES[drill] }}>
+                    {fmt0(drillBySub.reduce((s, x) => s + x.monthly, 0))}/mo
+                  </span>}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 18 }}>
+                  <div>
+                    <H>By subcategory</H>
+                    {drillBySub.map((s) => {
+                      const max = drillBySub[0]?.value || 1;
+                      const pct = Math.round((s.value / drillBySub.reduce((a, x) => a + x.value, 0)) * 100);
+                      return (
+                        <div key={s.name} style={{ marginBottom: 10 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: 3 }}>
+                            <span style={{ fontWeight: 600 }}>{s.name}</span>
+                            <span style={{ fontFamily: "ui-monospace, monospace", color: C.sub }}>
+                              {maskTotals ? `${pct}%` : `${fmt0(s.monthly)}/mo · ${pct}%`}
+                            </span>
+                          </div>
+                          <div style={{ background: C.bg, borderRadius: 99, height: 9 }}>
+                            <div style={{ width: `${(s.value / max) * 100}%`, background: CATEGORIES[drill], height: 9, borderRadius: 99, opacity: s.name === "Needs subcategory" ? 0.35 : 1 }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {drillBySub.some((s) => s.name === "Needs subcategory") && (
+                      <div style={{ fontSize: 11.5, color: C.gold, marginTop: 6 }}>Some charges need a subcategory — run “Smart categorize” on the Transactions tab, or set them by hand there.</div>
+                    )}
+                  </div>
+                  <div>
+                    <H>Merchants in {drill}</H>
+                    {drillMerchants.map(([m, info]) => (
+                      <div key={m} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${C.line}` }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m}</div>
+                          <div style={{ fontSize: 11, color: C.sub }}>{info.sub} · {info.n}×</div>
+                        </div>
+                        <Amt v={-info.total} masked={maskTotals} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </Card>
+            )}
             <Card>
               <H>Top merchants</H>
               {Object.entries(spend.reduce((m, t) => { const k = normMerchant(t.desc); m[k] = (m[k] || 0) + Math.abs(t.amount); return m; }, {}))
@@ -704,6 +824,12 @@ export default function TwoCents() {
                     </div>
                     <select value={t.category} onChange={(e) => correct(t, e.target.value)} style={{ border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 11.5, padding: "4px 6px", background: "#fff", color: CATEGORIES[t.category] }}>
                       {CAT_LIST.map((c) => <option key={c}>{c}</option>)}
+                    </select>
+                    <select value={normSub(t.category, t.sub)} onChange={(e) => correct(t, t.category, e.target.value)}
+                      style={{ border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 11.5, padding: "4px 6px", background: "#fff", color: normSub(t.category, t.sub) ? C.ink : C.gold, maxWidth: 130 }}>
+                      <option value="">— sub —</option>
+                      {(SUBCATS[t.category] || []).map((s) => <option key={s}>{s}</option>)}
+                      {normSub(t.category, t.sub) && !(SUBCATS[t.category] || []).includes(normSub(t.category, t.sub)) && <option>{normSub(t.category, t.sub)}</option>}
                     </select>
                     {(t.source === "pending" || (t.confidence > 0 && t.confidence < 65)) && (
                       <Btn small tone="ghost" onClick={() => verifyOne(t)}><Search size={12} /> Verify online</Btn>
@@ -945,7 +1071,7 @@ export default function TwoCents() {
                 <Btn tone="cut" onClick={async () => {
                   if (!confirm("Erase all transactions, rules, and settings?")) return;
                   for (const k of ["tc:settings", "tc:txns:A", "tc:txns:B", "tc:rules", "tc:cuts", "tc:banks"]) { await deleteKey(k); }
-                  setTxnsA([]); setTxnsB([]); setRules({}); setCuts({}); setBanks({});
+                  setTxnsA([]); setTxnsB([]); setRules({}); setCuts({}); setBanks({}); setDrill(null);
                   setSettings({ mode: null, partners: ["Partner 1", "Partner 2"], shareExact: { A: true, B: true } });
                 }}><Trash2 size={14} /> Erase everything</Btn>
               </div>
