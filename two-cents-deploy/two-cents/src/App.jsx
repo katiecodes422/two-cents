@@ -321,6 +321,8 @@ export default function TwoCents() {
   const [share, setShare] = useState(null); // {title, text}
   const [cuts, setCuts] = useState({}); // category -> percent
   const [drill, setDrill] = useState(null); // category being drilled into on the dashboard
+  const [q, setQ] = useState(""); // transactions search filter
+  const [showAll, setShowAll] = useState(false);
   const fileRef = useRef();
   const [pasteText, setPasteText] = useState("");
   const [importBank, setImportBank] = useState("");
@@ -360,6 +362,13 @@ export default function TwoCents() {
   const allTxns = useMemo(() => [...txnsA.map(t => ({ ...t, owner: "A" })), ...txnsB.map(t => ({ ...t, owner: "B" }))].sort((a, b) => b.date.localeCompare(a.date)), [txnsA, txnsB]);
   const spend = allTxns.filter((t) => t.amount < 0 && t.category !== "Transfers");
   const setOwnerTxns = (owner, fn) => (owner === "A" ? setTxnsA(fn) : setTxnsB(fn));
+  const txnMatch = (t) => {
+    if (!q.trim()) return true;
+    const s = q.trim().toLowerCase();
+    return t.desc.toLowerCase().includes(s) || (t.bank || "").toLowerCase().includes(s) ||
+      t.category.toLowerCase().includes(s) || (t.sub || "").toLowerCase().includes(s) ||
+      Math.abs(t.amount).toFixed(2).includes(s.replace(/[$-]/g, ""));
+  };
 
   /* ---- ingest: shared pipeline for every source (CSV, PDF, image) ---- */
   function ingest(records, bank, owner) {
@@ -770,7 +779,8 @@ export default function TwoCents() {
                   <div>
                     <H>Merchants in {drill}</H>
                     {drillMerchants.map(([m, info]) => (
-                      <div key={m} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${C.line}` }}>
+                      <div key={m} onClick={() => { setQ(m); setShowAll(true); setTab("transactions"); }} title="Open in Transactions"
+                        style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${C.line}`, cursor: "pointer" }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m}</div>
                           <div style={{ fontSize: 11, color: C.sub }}>{info.sub} · {info.n}×</div>
@@ -807,9 +817,16 @@ export default function TwoCents() {
                 AI reviews what each merchant <i>actually</i> is — not just its payment-network code. Correct any row and the app remembers your rule forever. Flagged rows can be web-verified one at a time.
               </div>
             </Card>
+            <Card style={{ padding: "10px 14px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <Search size={15} color={C.sub} />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search merchant, bank, category, or amount…"
+                style={{ flex: 1, minWidth: 200, border: "none", outline: "none", fontSize: 13.5, background: "transparent" }} />
+              {q && <Btn small tone="ghost" onClick={() => setQ("")}><X size={12} /> Clear</Btn>}
+              <span style={{ fontSize: 12, color: C.sub }}>{(() => { const f = allTxns.filter(txnMatch); return `${f.length} of ${allTxns.length}`; })()}</span>
+            </Card>
             <Card style={{ padding: 0, overflow: "hidden" }}>
               {allTxns.length === 0 && <div style={{ padding: 30, textAlign: "center", color: C.sub, fontSize: 14 }}>Nothing here yet — import a statement first.</div>}
-              {allTxns.slice(0, 200).map((t) => {
+              {allTxns.filter(txnMatch).slice(0, showAll ? undefined : 200).map((t) => {
                 const mine = t.owner === me;
                 const visible = canSeeExact(t.owner);
                 return (
@@ -843,6 +860,11 @@ export default function TwoCents() {
                   </div>
                 );
               })}
+              {!showAll && allTxns.filter(txnMatch).length > 200 && (
+                <div style={{ padding: 14, textAlign: "center" }}>
+                  <Btn tone="ghost" onClick={() => setShowAll(true)}>Show all {allTxns.filter(txnMatch).length} transactions</Btn>
+                </div>
+              )}
             </Card>
           </>
         )}
